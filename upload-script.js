@@ -99,6 +99,9 @@ zipFiles.forEach(file => {
   } catch (error) {
     console.error(`❌ Failed to upload ${file} to ${site.slug}: ${error.message}`);
   }
+  // THÊM VÀO ĐÂY: Tạm nghỉ 5 giây trước khi xử lý file zip tiếp theo
+  console.log("--- Tạm nghỉ 5 giây để tránh bị firewall chặn ---");
+  execSync('sleep 5'); 
 });
 
 console.log(`Total files uploaded for ${site.slug}: ${uploadedCount}`);
