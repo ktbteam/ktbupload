@@ -9,8 +9,11 @@ if (!site) {
   process.exit(1);
 }
 
-const ktbImagePath = process.env.KTB_IMAGE_PATH || 'ktb-image';
-const zipsDirectory = path.join(ktbImagePath, 'generated-zips');
+// THAY ĐỔI Ở ĐÂY: Cập nhật giá trị fallback cho đúng với cấu trúc thư mục
+const ktbImagePath = process.env.KTB_IMAGE_PATH || '../ktbproject/ktbimage';
+
+// Dòng này vẫn đúng, nó sẽ nối 'OutputImage' vào đường dẫn ktbImagePath ở trên
+const zipsDirectory = path.join(ktbImagePath, 'OutputImage');
 
 if (!fs.existsSync(zipsDirectory)) {
   console.error(`Lỗi: Không tìm thấy thư mục chứa file zip tại: ${zipsDirectory}`);
@@ -19,7 +22,8 @@ if (!fs.existsSync(zipsDirectory)) {
 
 const zipFiles = fs.readdirSync(zipsDirectory).filter(file => file.endsWith(".zip"));
 let uploadedCount = 0;
-const uploadedFiles = [];
+// THAY ĐỔI 2: Đổi tên uploadedFiles để rõ nghĩa hơn
+const reportLines = [];
 
 const logFile = `uploaded_files_${site.slug}.log`;
 if (!fs.existsSync(logFile)) {
@@ -68,7 +72,6 @@ zipFiles.forEach(file => {
     const remoteZipPath = `${remoteTempDir}/${path.basename(file)}`;
     const remoteScriptPath = `${remoteTempDir}/remote_script.sh`;
 
-    // SỬA ĐỔI: Thêm cờ "-n"
     execSync(`ssh -T -n -o StrictHostKeyChecking=no -i "${sshKeyPath}" -p ${vpsPort} ${vpsUser}@${vpsHost} "mkdir -p ${remoteTempDir}"`, { stdio: 'inherit' });
     execSync(`scp -o StrictHostKeyChecking=no -i "${sshKeyPath}" -P ${vpsPort} ${zipSourcePath} ${vpsUser}@${vpsHost}:${remoteZipPath}`, { stdio: 'inherit' });
 
@@ -87,18 +90,26 @@ zipFiles.forEach(file => {
 
     execSync(`scp -o StrictHostKeyChecking=no -i "${sshKeyPath}" -P ${vpsPort} ${localScriptPath} ${vpsUser}@${vpsHost}:${remoteScriptPath}`, { stdio: 'inherit' });
     
-    // SỬA ĐỔI: Thêm cờ "-n"
     execSync(`ssh -T -n -o StrictHostKeyChecking=no -i "${sshKeyPath}" -p ${vpsPort} ${vpsUser}@${vpsHost} "bash ${remoteScriptPath}"`, { stdio: 'inherit' });
 
     fs.unlinkSync(localScriptPath);
 
     fs.appendFileSync(logFile, `${file}\n`);
     uploadedCount++;
-    uploadedFiles.push(file);
+    
+    // THAY ĐỔI 3: Trích xuất số lượng ảnh và tạo dòng report mới
+    const parts = file.replace('.zip', '').split('.');
+    const imageCount = parseInt(parts[parts.length - 1], 10) || 0;
+    if (imageCount > 0) {
+        reportLines.push(`${site.prefix}:${imageCount}`);
+    }
+
     console.log(`✅ Finished importing ${file} to ${site.slug}.`);
   } catch (error) {
     console.error(`❌ Failed to upload ${file} to ${site.slug}: ${error.message}`);
   }
+  console.log("--- Tạm nghỉ 5 giây để tránh bị firewall chặn ---");
+  execSync('sleep 5'); 
 });
 
 console.log(`Total files uploaded for ${site.slug}: ${uploadedCount}`);
@@ -107,7 +118,8 @@ if (process.env.GITHUB_OUTPUT) {
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `uploaded_count=${uploadedCount}\n`);
 }
 
-if (uploadedFiles.length > 0) {
-  const reportContent = uploadedFiles.join('\n');
+// THAY ĐỔI 4: Ghi nội dung report mới vào file
+if (reportLines.length > 0) {
+  const reportContent = reportLines.join('\n');
   fs.writeFileSync(`${site.slug}_report.txt`, reportContent);
 }
