@@ -1,7 +1,7 @@
 const fs = require("fs");
 const { execSync } = require("child_process");
 const path = require("path");
-const os = require("os"); // Sử dụng lại module 'os'
+const os = require("os");
 
 const site = JSON.parse(process.env.SITE_CONFIG_JSON);
 if (!site) {
@@ -38,34 +38,27 @@ zipFiles.forEach(file => {
   try {
     console.log(`Uploading ${file} to ${site.slug}...`);
     
-    const vpsHost = process.env[`${site.vps_secret_prefix}_VPS_HOST`];
-    const vpsUser = process.env[`${site.vps_secret_prefix}_VPS_USERNAME`];
-    const vpsPort = process.env[`${site.vps_secret_prefix}_VPS_PORT`];
-    
-    // ================= LOGIC XỬ LÝ KEY ĐA MÔI TRƯỜNG =================
-    // Ưu tiên tìm biến chứa ĐƯỜNG DẪN đến file key (dành cho PC)
     let sshKeyPath = process.env[`${site.vps_secret_prefix}_SSH_PRIVATE_KEY_PATH`];
     
-    // Nếu không có biến PATH (nghĩa là đang chạy trên GitHub Actions)...
     if (!sshKeyPath) {
         console.log("Không tìm thấy SSH_PRIVATE_KEY_PATH, đang tìm SSH_PRIVATE_KEY (nội dung key)...");
-        // ...thì tìm biến chứa NỘI DUNG key
         const vpsSshKeyContent = process.env[`${site.vps_secret_prefix}_SSH_PRIVATE_KEY`];
         
         if (!vpsSshKeyContent) {
-            // Nếu cả hai đều không có thì báo lỗi
             throw new Error(`Missing VPS secrets: Cần có SSH_PRIVATE_KEY_PATH (cho PC) hoặc SSH_PRIVATE_KEY (cho Actions) cho prefix: ${site.vps_secret_prefix}`);
         }
         
-        // Tạo file key tạm từ nội dung key
         sshKeyPath = path.join(os.tmpdir(), `ssh_key_${site.slug}`);
         fs.writeFileSync(sshKeyPath, vpsSshKeyContent, { mode: 0o600 });
         console.log(`SSH key được tạo tạm thời tại: ${sshKeyPath} (cho GitHub Actions)`);
     } else {
         console.log(`Sử dụng SSH key từ đường dẫn được cung cấp: ${sshKeyPath} (cho PC)`);
     }
-    // =================================================================
-
+    
+    const vpsHost = process.env[`${site.vps_secret_prefix}_VPS_HOST`];
+    const vpsUser = process.env[`${site.vps_secret_prefix}_VPS_USERNAME`];
+    const vpsPort = process.env[`${site.vps_secret_prefix}_VPS_PORT`];
+    
     if (!vpsHost || !vpsUser || !vpsPort || !sshKeyPath) {
         throw new Error(`Missing VPS secrets for prefix: ${site.vps_secret_prefix}`);
     }
@@ -75,30 +68,27 @@ zipFiles.forEach(file => {
     const remoteZipPath = `${remoteTempDir}/${path.basename(file)}`;
     const remoteScriptPath = `${remoteTempDir}/remote_script.sh`;
 
-    execSync(`ssh -T -o StrictHostKeyChecking=no -i "${sshKeyPath}" -p ${vpsPort} ${vpsUser}@${vpsHost} "mkdir -p ${remoteTempDir}"`, { stdio: 'inherit' });
+    // SỬA ĐỔI: Thêm cờ "-n"
+    execSync(`ssh -T -n -o StrictHostKeyChecking=no -i "${sshKeyPath}" -p ${vpsPort} ${vpsUser}@${vpsHost} "mkdir -p ${remoteTempDir}"`, { stdio: 'inherit' });
     execSync(`scp -o StrictHostKeyChecking=no -i "${sshKeyPath}" -P ${vpsPort} ${zipSourcePath} ${vpsUser}@${vpsHost}:${remoteZipPath}`, { stdio: 'inherit' });
 
     const remoteCommand = `#!/bin/bash
       set -e
       shopt -s nullglob
-      echo "--- Executing remote script on VPS ---"
       cd ${remoteTempDir}
-      echo "--- Unzipping file ---"
       unzip -o '${path.basename(file)}' -d extracted_images
-      echo "--- Changing to WordPress directory: ${site.wp_path} ---"
       cd ${site.wp_path}
-      echo "--- Starting WP Media Import ---"
       wp media import ${remoteTempDir}/extracted_images/*.{webp,jpg} --user=${site.wp_author}
-      echo "--- Cleaning up temp directory ---"
       rm -rf ${remoteTempDir}
-      echo "--- Remote script finished ---"
     `;
 
     const localScriptPath = path.join(__dirname, 'temp_remote_script.sh');
     fs.writeFileSync(localScriptPath, remoteCommand);
 
     execSync(`scp -o StrictHostKeyChecking=no -i "${sshKeyPath}" -P ${vpsPort} ${localScriptPath} ${vpsUser}@${vpsHost}:${remoteScriptPath}`, { stdio: 'inherit' });
-    execSync(`ssh -T -o StrictHostKeyChecking=no -i "${sshKeyPath}" -p ${vpsPort} ${vpsUser}@${vpsHost} "bash ${remoteScriptPath}"`, { stdio: 'inherit' });
+    
+    // SỬA ĐỔI: Thêm cờ "-n"
+    execSync(`ssh -T -n -o StrictHostKeyChecking=no -i "${sshKeyPath}" -p ${vpsPort} ${vpsUser}@${vpsHost} "bash ${remoteScriptPath}"`, { stdio: 'inherit' });
 
     fs.unlinkSync(localScriptPath);
 
@@ -108,7 +98,6 @@ zipFiles.forEach(file => {
     console.log(`✅ Finished importing ${file} to ${site.slug}.`);
   } catch (error) {
     console.error(`❌ Failed to upload ${file} to ${site.slug}: ${error.message}`);
-    process.exit(1);
   }
 });
 

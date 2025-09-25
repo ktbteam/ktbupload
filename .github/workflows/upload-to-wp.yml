@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  # JOB 1: Đọc config
+  # JOB 1: Đọc config (Không thay đổi)
   setup:
     runs-on: ubuntu-latest
     outputs:
@@ -23,7 +23,8 @@ jobs:
           SITES_JSON=$(jq -c '.sites' config.json)
           echo "sites=${SITES_JSON}" >> $GITHUB_OUTPUT
 
-  # JOB 2: Upload file
+  # JOB 2: Upload file (Không thay đổi)
+  # Script upload-script.js giờ đã đủ thông minh để xử lý key từ secrets
   upload:
     needs: setup
     runs-on: ubuntu-latest
@@ -74,11 +75,10 @@ jobs:
         if: success() && steps.upload_process.outputs.uploaded_count > 0
         uses: actions/upload-artifact@v4
         with:
-          # SỬA LỖI: Tạo tên artifact duy nhất cho mỗi site
           name: report-${{ matrix.site.slug }}
           path: ${{ matrix.site.slug }}_report.txt
 
-# JOB 3: Báo cáo (Hoàn thiện cuối cùng)
+  # JOB 3: Báo cáo (Đã cập nhật để nhất quán với PC)
   report:
     needs: upload
     if: always()
@@ -87,7 +87,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }} # Dùng token mặc định của Actions để push
 
       - name: Download all report files
         uses: actions/download-artifact@v4
@@ -95,30 +95,31 @@ jobs:
           pattern: report-*
           path: all-reports
           if-no-files-found: warn
+      
+      # Thêm bước cài đặt Node.js cho job này
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
 
-      - name: Generate Log and Send Report
+      - name: Generate Log, Send Report, and Commit
         env:
-          TELEGRAM_TO: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # Cung cấp các biến môi trường cho cả script Node.js và Git
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
-          # --- 1. Tạo file upload.log trực tiếp bằng 'echo -e' ---
-          TIMESTAMP=$(TZ='Asia/Ho_Chi_Minh' date +"%Y-%m-%d %H:%M:%S %z")
+          # 1. Tạo file upload.log
+          # Dùng script get-timestamp.js để nhất quán với PC
+          TIMESTAMP=$(node get-timestamp.js)
           echo -e "--- Summary of Last Upload ---\nTimestamp: $TIMESTAMP\n" > upload.log
 
           AGGREGATED_REPORT_FILES=$(find all-reports -type f -name "*.txt" 2>/dev/null)
-
           if [ -n "$AGGREGATED_REPORT_FILES" ]; then
-              # SỬA LỖI DÍNH CHỮ: Dùng vòng lặp for để xử lý từng file một
               for report_file in $AGGREGATED_REPORT_FILES; do
-                  # Nối nội dung của file báo cáo
                   cat "$report_file" >> upload.log
-                  # Chủ động thêm một ký tự xuống dòng để ngăn các file dính vào nhau
                   echo "" >> upload.log
               done
-              
-              # Xóa dòng trắng thừa cuối cùng do vòng lặp tạo ra để file log được sạch sẽ
               sed -i '${/^\s*$/d;}' upload.log
-
               echo -e "\n\nUpload thành công." >> upload.log
           else
               echo "Upload thất bại." >> upload.log
@@ -128,23 +129,20 @@ jobs:
           cat upload.log
           echo "-------------------------"
 
-          # --- 2. Commit file upload.log mới ---
+          # 2. Gửi nội dung log qua Telegram bằng script Node.js
+          echo "Sending report via Telegram..."
+          node send-telegram.js
+
+          # 3. Commit file upload.log mới
+          echo "Committing upload.log..."
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add upload.log
           if ! git diff --staged --quiet; then
               git commit -m "Update upload.log for new run"
+              # Pull rebase để tránh xung đột
               git pull --rebase
               git push
           else
               echo "No changes to upload.log to commit."
           fi
-
-          # --- 3. Gửi nội dung log qua Telegram ---
-          LOG_CONTENT=$(cat upload.log)
-          JSON_PAYLOAD=$(jq -n --arg text "$LOG_CONTENT" \
-            '{chat_id: env.TELEGRAM_TO, text: $text}')
-
-          curl -s -X POST -H 'Content-Type: application/json' \
-            "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
-            -d "$JSON_PAYLOAD"
