@@ -1,0 +1,88 @@
+#!/bin/bash
+set -e
+
+ZIP_FILE_PATH="$1"
+WP_AUTHOR="$2"
+WP_PATH="$3"
+WEB_USER="nginx" # <-- THAY ĐỔI NẾU CẦN
+
+# --- Cấu hình ---
+# Đường dẫn đến file chứa bí mật, tính từ thư mục nhà của user chạy script (ktb)
+TELEGRAM_ENV_FILE="$HOME/.telegram_env"
+
+# --- Hàm gửi thông báo ---
+send_telegram_notification() {
+    local message="$1"
+    
+    # Kiểm tra xem file bí mật có tồn tại không
+    if [ ! -f "$TELEGRAM_ENV_FILE" ]; then
+        echo "Lỗi: Không tìm thấy file $TELEGRAM_ENV_FILE"
+        return 1
+    fi
+    
+    # Đọc bí mật từ file
+    source "$TELEGRAM_ENV_FILE"
+    
+    if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+        echo "Lỗi: Token hoặc Chat ID rỗng trong file $TELEGRAM_ENV_FILE"
+        return 1
+    fi
+
+    # Gửi tin nhắn bằng curl
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
+        -d "text=${message}" \
+        -d "disable_web_page_preview=true" > /dev/null
+}
+
+# --- Logic chính ---
+ZIP_NAME=$(basename "$ZIP_FILE_PATH")
+REMOTE_TEMP_DIR=$(mktemp -d /tmp/upload_${ZIP_NAME%.zip}.XXXXXX)
+chmod 755 "$REMOTE_TEMP_DIR" 
+
+# Biến để lưu kết quả
+IMPORT_STATUS="SUCCESS"
+IMPORT_OUTPUT=""
+
+# Bẫy dọn dẹp (trap)
+function cleanup {
+    echo "Dọn dẹp $REMOTE_TEMP_DIR..."
+    rm -rf "$REMOTE_TEMP_DIR"
+    
+    # Gửi thông báo TRƯỚC KHI thoát
+    if [ "$IMPORT_STATUS" = "SUCCESS" ]; then
+        FINAL_MESSAGE="✅ HOÀN TẤT: File '$ZIP_NAME' (User: $WP_AUTHOR) đã import thành công."
+    else
+        # Chỉ lấy 5 dòng lỗi cuối cùng cho gọn
+        ERROR_DETAILS=$(echo "$IMPORT_OUTPUT" | tail -n 5)
+        FINAL_MESSAGE="❌ THẤT BẠI: File '$ZIP_NAME' (User: $WP_AUTHOR) import lỗi.\n\nLỗi:\n${ERROR_DETAILS}"
+    fi
+    
+    echo "$FINAL_MESSAGE"
+    send_telegram_notification "$FINAL_MESSAGE"
+}
+trap cleanup EXIT # EXIT có nghĩa là "luôn luôn chạy khi kết thúc"
+
+echo "--- Bắt đầu xử lý $ZIP_NAME ---"
+
+mv "$ZIP_FILE_PATH" "$REMOTE_TEMP_DIR/"
+cd "$REMOTE_TEMP_DIR"
+unzip -o "$ZIP_NAME" -d extracted_images
+chmod -R 755 extracted_images
+
+echo "Import vào $WP_PATH với author $WP_AUTHOR..."
+cd "$WP_PATH"
+shopt -s nullglob
+
+# (QUAN TRỌNG) Chạy lệnh và lưu output (kể cả lỗi) vào biến
+# '|| true' để script không bị dừng (set -e) nếu wp-cli báo lỗi
+IMPORT_OUTPUT=$(sudo -u $WEB_USER /usr/local/bin/wp media import "$REMOTE_TEMP_DIR/extracted_images/"*.{webp,jpg,png} --user="$WP_AUTHOR" 2>&1 || true)
+
+# Kiểm tra xem output có chữ "Error" hoặc "Warning" không
+if echo "$IMPORT_OUTPUT" | grep -q "Error:"; then
+    IMPORT_STATUS="FAILURE"
+fi
+
+echo "$IMPORT_OUTPUT"
+echo "--- Hoàn thành xử lý $ZIP_NAME ---"
+# Hàm cleanup sẽ tự động chạy ở đây

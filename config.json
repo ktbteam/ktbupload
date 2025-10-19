@@ -1,10 +1,14 @@
 {
+  "remote_import_script_path": "/usr/local/bin/ktb-import",
+  "remote_temp_upload_dir": "/home/ktb_tmp_uploads",
+  "default_user_author": "tran",
+  "delete_zip_after_upload": true,
   "sites": [
     {
       "slug": "ktbtee",
       "prefix": "ktbtee",
       "wp_path": "/home/ktbtee.com/public_html",
-      "wp_author": "khuetran",
+      "wp_author": "tran",
       "vps_secret_prefix": "KTBTEE"
     },
     {
@@ -25,7 +29,7 @@
       "slug": "printiment",
       "prefix": "printiment",
       "wp_path": "/home/printiment.com/public_html",
-      "wp_author": "khuetran",
+      "wp_author": "tran",
       "vps_secret_prefix": "PRINTIMENT"
     },
     {

@@ -12,10 +12,9 @@ __pycache__/
 .env
 
 #upload.log
-
+userupload.log
 # Các file tạm thời khác
 *.tmp
-*.bat
 *.sh
 # Bỏ qua các file log và report tạm được tạo ra trong quá trình chạy
 *_report.txt
