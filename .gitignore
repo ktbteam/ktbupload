@@ -7,7 +7,7 @@ __pycache__/
 *dist/
 *venv/
 *env/
-
+InputZip/
 # File biến môi trường
 .env
 

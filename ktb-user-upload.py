@@ -300,9 +300,11 @@ def main():
             remote_zip_quoted = shlex.quote(remote_zip_path)
             wp_author_quoted = shlex.quote(wp_author)
             wp_path_quoted = shlex.quote(site_config['wp_path'])
-            log_file = shlex.quote(f"/tmp/import_{filename}.log") # Log import vẫn ở /tmp
+            # Comment dòng này lại để tắt log. Bỏ comment nếu cần debug:
+            #log_file = shlex.quote(f"/tmp/import_{filename}.log") # Log import vẫn ở /tmp
             
-            nohup_cmd = f"nohup {remote_script} {remote_zip_quoted} {wp_author_quoted} {wp_path_quoted} > {log_file} 2>&1 &"
+            #nohup_cmd = f"nohup {remote_script} {remote_zip_quoted} {wp_author_quoted} {wp_path_quoted} > {log_file} 2>&1 &"
+            nohup_cmd = f"nohup {remote_script} {remote_zip_quoted} {wp_author_quoted} {wp_path_quoted} > /dev/null 2>&1 &"
             ssh.exec_command(nohup_cmd)
             print("✨ Kich hoat xong. Server se tu dong import.")
 
