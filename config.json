@@ -1,6 +1,5 @@
 {
-  "remote_import_script_path": "/usr/local/bin/ktb-import",
-  "remote_temp_upload_dir": "/home/ktb_tmp_uploads",
+  "remote_queue_dir": "/home/ktb_tmp_uploads",
   "default_user_author": "tran",
   "delete_zip_after_upload": true,
   "sites": [
