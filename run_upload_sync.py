@@ -102,7 +102,7 @@ def main():
         sys.exit(1)
 
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    report_content = f"--- Bao cao KTB Admin Upload Queue ---\nUser: {admin_vps_user}\nTimestamp: {timestamp}\n"
+    report_content = f"--- Bao cao KTB Admin Upload Queue ---\nUser: {default_author}\nTimestamp: {timestamp}\n"
     total_files_queued = 0
 
     # --- (LOGIC MỚI) DI CHUYỂN FILE VÀO PROCESSING ---
