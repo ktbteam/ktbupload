@@ -10,7 +10,7 @@ echo --- Bat dau quy trinh KTB Upload ---
 echo.
 echo Dang chay tu thu muc: %cd%
 echo.
-python run_upload_sync.py
+python ktb-admin-upload.py
 
 echo.
 echo --- Qua trinh hoan tat. ---

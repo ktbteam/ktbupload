@@ -27,8 +27,9 @@ except FileNotFoundError:
     print(f"[LOI] Khong tim thay file cau hinh {CONFIG_FILE}.")
     sys.exit(1)
 
-# --- Ham gui Telegram ---
+# --- Ham gui Telegram (Giữ nguyên) ---
 def send_telegram_message(message_content):
+    # THAY ĐỔI: Đọc token và chat_id từ .env (dùng cho báo cáo của script này)
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     chat_id = os.getenv('TELEGRAM_CHAT_ID')
     if not bot_token or not chat_id:
@@ -42,7 +43,7 @@ def send_telegram_message(message_content):
     except requests.exceptions.RequestException as e:
         print(f"[LOI] Khong the gui tin nhan: {e}")
 
-# --- Ham thuc thi chinh (Logic Hàng Đợi + Fix Folder Duy Nhất) ---
+# --- Ham thuc thi chinh ---
 def main():
     print("--- Bat dau quy trinh KTB Upload (Queue Mode) ---")
 
@@ -53,13 +54,18 @@ def main():
     try:
         # Lấy các cấu hình chung
         wp_author = config.get('default_user_author')
-        vps_user = os.getenv("DEFAULT_USER_VPS_USERNAME")
         remote_queue_dir = config.get('remote_queue_dir')
         delete_zip = config.get('delete_zip_after_upload', False)
 
-        if not wp_author or not vps_user or not remote_queue_dir:
+        # --- THAY ĐỔI: Đọc config từ .env mới ---
+        vps_user = os.getenv("VPS_USERNAME")
+        telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        # --- KẾT THÚC THAY ĐỔI ---
+
+        if not wp_author or not vps_user or not remote_queue_dir or not telegram_bot_token or not telegram_chat_id:
             print("❌ Loi: Kiem tra thieu 'default_user_author', 'remote_queue_dir' trong config.json")
-            print("   hoac 'DEFAULT_USER_VPS_USERNAME' trong .env")
+            print("   hoac 'VPS_USERNAME', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID' trong .env")
             sys.exit(1)
 
         # Hỏi mật khẩu 1 lần
@@ -86,7 +92,6 @@ def main():
         return
 
     # --- Sắp xếp file theo Host VPS ---
-    # (Giữ nguyên logic sắp xếp)
     files_by_host = defaultdict(list)
     
     print("Dang phan loai file theo Host VPS...")
@@ -108,12 +113,16 @@ def main():
             report_content += f"\n[LOI] {filename} (Loi .env)"
             continue
             
+        # --- THAY ĐỔI: Thêm thông tin Telegram vào meta.json ---
         meta_content = {
             "wp_author": wp_author,
             "wp_path": site_config['wp_path'],
             "zip_filename": filename,
-            "prefix": site_config['prefix']
+            "prefix": site_config['prefix'],
+            "telegram_bot_token": telegram_bot_token,
+            "telegram_chat_id": telegram_chat_id
         }
+        # --- KẾT THÚC THAY ĐỔI ---
         
         host_key = (vps_host, vps_port)
         unique_job_dir_name = f"job_{int(time.time())}_{wp_author}_{filename[:20]}"
@@ -131,24 +140,28 @@ def main():
     
     for (host, port), file_list in files_by_host.items():
         print("\n" + "="*60)
-        print(f"🚀 Dang ket noi den Host: {host}:{port} (User: {vps_user})")
+        print(f"🚀 Dang ket noi den Host: {host}:{port} (User: {vps_user}) - Su dung Password")
         
         ssh = None
         sftp = None
         try:
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            # --- QUAN TRỌNG: Chỉ dùng Password, tắt SSH Key ---
             ssh.connect(
                 host, 
                 port=port, 
                 username=vps_user, 
                 password=vps_password, 
                 timeout=10,
-                disabled_algorithms={'publickey': []}
+                disabled_algorithms={'publickey': []} # <-- Dòng này bắt buộc dùng password
             )
+            # --- KẾT THÚC ---
+            
             sftp = ssh.open_sftp()
             print(f"✅ Ket noi {host} thanh cong. Bat dau upload {len(file_list)} job...")
 
+            # ... (Logic upload, tạo thư mục tạm, rename... giữ nguyên) ...
             for package in file_list:
                 filename = package['original_filename']
                 local_zip_path = package['local_zip_path']
@@ -157,35 +170,27 @@ def main():
                 
                 local_meta_path = os.path.join(INPUT_DIR, f"{job_dir_name}_meta.json") # Tạm thời
                 
-                # --- [SỬA LỖI RACE CONDITION] ---
-                # 1. Định nghĩa hai đường dẫn
                 remote_job_dir_path_tmp = f"{remote_queue_dir}/tmp_{job_dir_name}"
                 remote_job_dir_path_final = f"{remote_queue_dir}/{job_dir_name}"
                 
-                # 2. Định nghĩa file trong thư mục TẠM
                 remote_zip_path = f"{remote_job_dir_path_tmp}/{filename}"
                 remote_meta_path = f"{remote_job_dir_path_tmp}/meta.json"
-                # --- [HẾT SỬA] ---
 
-                upload_successful = False # Cờ để check xóa file local
+                upload_successful = False
                 
                 try:
-                    # 1. Tạo thư mục TẠM
                     print(f"   Tao job folder tam: tmp_{job_dir_name}...")
                     sftp.mkdir(remote_job_dir_path_tmp)
                     
-                    # 2. Tạo file meta.json local tạm thời
                     with open(local_meta_path, 'w', encoding='utf-8') as f:
                         json.dump(meta_content, f)
 
-                    # 3. Upload file (ưu tiên meta nhỏ trước) VÀO THƯ MỤC TẠM
                     print(f"   Uploading meta.json (tam)...")
                     sftp.put(local_meta_path, remote_meta_path)
                     
                     print(f"   Uploading {filename} (tam)...")
                     sftp.put(local_zip_path, remote_zip_path)
                     
-                    # 4. Kích hoạt job (Rename)
                     print(f"   Kich hoat job (doi ten thu muc)...")
                     command = f"mv {shlex.quote(remote_job_dir_path_tmp)} {shlex.quote(remote_job_dir_path_final)}"
                     stdin, stdout, stderr = ssh.exec_command(command)
@@ -194,7 +199,6 @@ def main():
                     if exit_status != 0:
                         raise Exception(f"Loi doi ten thu muc job: {stderr.read().decode()}")
 
-                    # 5. Đánh dấu thành công
                     upload_successful = True
                     print(f"   ✅ {filename}: Da xep hang thanh cong.")
                     report_content += f"\n[OK] {filename} -> {host} (Da xep hang)"
@@ -203,7 +207,6 @@ def main():
                 except Exception as e:
                     print(f"   [LOI] {filename}: Upload that bai: {e}")
                     report_content += f"\n[LOI] {filename} (Upload failed: {e})"
-                    # Cố gắng dọn dẹp thư mục job TẠM rỗng trên server
                     try: 
                         sftp.remove(remote_meta_path)
                         sftp.remove(remote_zip_path)
@@ -211,11 +214,9 @@ def main():
                     except: pass
                 
                 finally:
-                    # Luôn dọn dẹp file meta local
                     if os.path.exists(local_meta_path):
                         os.remove(local_meta_path)
                     
-                    # Chỉ dọn dẹp file zip local NẾU config=True VÀ upload_successful=True
                     if upload_successful and delete_zip:
                         os.remove(local_zip_path)
                         print(f"   🧹 Da xoa file local: {filename}")
