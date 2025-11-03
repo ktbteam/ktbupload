@@ -37,6 +37,13 @@
       "wp_path": "/home/albumcoverprint.com/public_html",
       "wp_author": "tran",
       "vps_secret_prefix": "ALBUMCOVERPRINT"
+    },
+    {
+      "slug": "vflippa",
+      "prefix": "vflippa",
+      "wp_path": "/home/vflippa.com/public_html",
+      "wp_author": "tran",
+      "vps_secret_prefix": "VFLIPPA"
     }
   ]
 }
